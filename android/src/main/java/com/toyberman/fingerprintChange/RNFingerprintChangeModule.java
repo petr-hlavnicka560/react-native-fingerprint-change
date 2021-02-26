@@ -18,6 +18,8 @@ import javax.crypto.SecretKey;
 import javax.crypto.KeyGenerator;
 import android.security.keystore.KeyGenParameterSpec;
 import android.security.keystore.KeyProperties;
+
+import javax.crypto.spec.GCMParameterSpec;
 import javax.crypto.spec.IvParameterSpec;
 
 import javax.crypto.spec.SecretKeySpec;
@@ -27,6 +29,7 @@ import java.io.UnsupportedEncodingException;
 import java.lang.reflect.Array;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.security.AlgorithmParameters;
 import java.security.InvalidAlgorithmParameterException;
 import java.security.KeyStore;
 import 	java.security.SecureRandom;
@@ -54,7 +57,7 @@ public class RNFingerprintChangeModule extends ReactContextBaseJavaModule{
     public void hasFingerPrintChanged(Callback errorCallback, Callback successCallback) throws KeyPermanentlyInvalidatedException, Exception {
         Cipher cipher = getCipher();
         SecretKey secretKey = getSecretKey();
-        Log.i("======FINGERPRINT_MODULE, key at start: ", secretKey == null ? "NULL" : secretKey.toString());
+        Log.i("======F, key at start: ", secretKey == null ? "NULL" : secretKey.toString());
         if (getSecretKey() == null){
 //                generateSecretKey(new KeyGenParameterSpec.Builder(
 //                        KEY_NAME,
@@ -69,60 +72,71 @@ public class RNFingerprintChangeModule extends ReactContextBaseJavaModule{
 //                        .build());
             generateKey(seed);
             secretKey = getSecretKey();
-            Log.i("======FINGERPRINT_MODULE", "key has been created");
-            Log.i("======FINGERPRINT_MODULE, key: ", secretKey.toString());
+            Log.i("======F", "key has been created");
+            Log.i("======F, key: ", secretKey.toString());
         }
         try {
-            Log.i("======FINGERPRINT_MODULE, key in try: ", secretKey.toString());
-            final IvParameterSpec emptyIvSpec = new IvParameterSpec(new byte[] {0x01, 0x04, 0x08, 0x07, 0x05, 0x11, 0x14, 0x08, 0x07, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x01, 0x04, 0x08, 0x07, 0x05, 0x11, 0x14, 0x08, 0x07, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03});
+            Log.i("======F, key in try: ", secretKey.toString());
+            byte[] newIv = new byte[16];
+            SecureRandom ivRandom = new SecureRandom();
+            ivRandom.nextBytes(newIv);
+            Log.i("======F, newIv: ", Arrays.toString(newIv));
+            Log.i("======F, newIv.length: ", String.valueOf(newIv.length));
+            String newIvText = Base64.encodeToString(newIv, Base64.DEFAULT);
+            Log.i("======F, newIv Base64: ", newIvText);
+//                byte[] iv = new byte[] {0x01, 0x04, 0x08, 0x07, 0x05, 0x11, 0x14, 0x08, 0x07, 0x04, 0x00, 0x00};
+//                final IvParameterSpec emptyIvSpec = new IvParameterSpec(iv);
 //                SecretKey secretKey2 = new SecretKeySpec(new byte[] {0x01, 0x04, 0x08, 0x07, 0x05, 0x11, 0x13, 0x08, 0x08, 0x04, 0x01, 0x05, 0x06, 0x07, 0x08, 0x03}, "AES");
-
-            cipher.init(Cipher.ENCRYPT_MODE, secretKey);
-            Log.i("======FINGERPRINT_MODULE", "INIT ENCRYPT successful");
+            GCMParameterSpec paramsSpec = new GCMParameterSpec(128, newIv);
+            Log.i("======F", "GCMParameterSpec successful");
+//                Log.i("======F, cip param: ", cipher.getParameters().toString());
+//                Log.i("======F, cip iv: ", Arrays.toString(cipher.getIV()));
+            cipher.init(Cipher.ENCRYPT_MODE, secretKey, paramsSpec);
+            Log.i("======F", "INIT ENCRYPT successful");
             int blockSize = cipher.getBlockSize();
-            Log.i("======FINGERPRINT_MODULE, Cipher blockSize: ", String.valueOf(blockSize));
-            byte[] testBytes = new byte[2 * blockSize];
+            Log.i("======F, C blockSize: ", String.valueOf(blockSize));
+            byte[] testBytes = new byte[blockSize];
             for (int i = 0; i < blockSize; i++) {
                 testBytes[i] = 13;
             }
-            for (int i = blockSize; i < 2 * blockSize; i++) {
-                testBytes[i] = 16;
-            }
-            ByteBuffer inputBuf = ByteBuffer.wrap(testBytes);
-            ByteBuffer outputBuf = ByteBuffer.allocate(1000);;
-            Log.i("======FINGERPRINT_MODULE, testBytes: ", Arrays.toString(testBytes));
-            Log.i("======FINGERPRINT_MODULE, testBytes.length: ", String.valueOf(testBytes.length));
+//                for (int i = blockSize; i < 2 * blockSize; i++) {
+//                    testBytes[i] = 16;
+//                }
+//                ByteBuffer inputBuf = ByteBuffer.wrap(testBytes);
+//                ByteBuffer outputBuf = ByteBuffer.allocate(1000);;
+            Log.i("======F, testBytes: ", Arrays.toString(testBytes));
+            Log.i("======F, tB.length: ", String.valueOf(testBytes.length));
             String originalText = Base64.encodeToString(testBytes, Base64.DEFAULT);
-            Log.i("======FINGERPRINT_MODULE, testBytes text: ", originalText);
+            Log.i("======F, tB Base64: ", originalText);
 //                String testString = "Test this encryption";
 //                byte[] testBytes = adjustTestString(testString).getBytes(StandardCharsets.UTF_8);
-//                Log.i("======FINGERPRINT_MODULE, testBytes.length: ", String.valueOf(testBytes.length));
+//                Log.i("======F, testBytes.length: ", String.valueOf(testBytes.length));
 
-//                byte[] cipherBytes = cipher.doFinal(testBytes);
-            int cipherBytes = cipher.doFinal(inputBuf, outputBuf);
-            Log.i("======FINGERPRINT_MODULE, no of bytes in output: ", String.valueOf(cipherBytes));
+            byte[] cipherBytes = cipher.doFinal(testBytes);
+//                int cipherBytes = cipher.doFinal(inputBuf, outputBuf);
+//                Log.i("======F, no of bytes in output: ", String.valueOf(cipherBytes));
 
-            Log.i("======FINGERPRINT_MODULE, cipherBytes: ", Arrays.toString(outputBuf.array()));
-            Log.i("======FINGERPRINT_MODULE, cipherBytes.length: ", String.valueOf(outputBuf.array().length));
-            String cipherString = Base64.encodeToString(outputBuf.array(), Base64.DEFAULT);
-            Log.i("======FINGERPRINT_MODULE, cipherBytes text: ", cipherString);
+//                Log.i("======F, cipherBytes: ", Arrays.toString(outputBuf.array()));
+//                Log.i("======F, cipherBytes.length: ", String.valueOf(outputBuf.array().length));
+//                String cipherString = Base64.encodeToString(outputBuf.array(), Base64.DEFAULT);
+//                Log.i("======F, cipherBytes text: ", cipherString);
 
-//                Log.i("======FINGERPRINT_MODULE, cipherBytes: ", Arrays.toString(cipherBytes));
-//                Log.i("======FINGERPRINT_MODULE, cipherBytes.length: ", String.valueOf(cipherBytes.length));
-//                String cipherString = Base64.encodeToString(cipherBytes, Base64.DEFAULT);
-//                Log.i("======FINGERPRINT_MODULE, cipherBytes text: ", cipherString);
+            Log.i("======F, cipherBytes: ", Arrays.toString(cipherBytes));
+            Log.i("======F, cB.length: ", String.valueOf(cipherBytes.length));
+            String cipherString = Base64.encodeToString(cipherBytes, Base64.DEFAULT);
+            Log.i("======F, cB Base64: ", cipherString);
 
             Cipher cipher2 = getCipher();
-            cipher2.init(Cipher.DECRYPT_MODE, secretKey, emptyIvSpec);
-            Log.i("======FINGERPRINT_MODULE", "INIT DECRYPT successful");
-            byte[] decryptedBytes = cipher2.doFinal(outputBuf.array());
-            Log.i("======FINGERPRINT_MODULE, decryptedBytes: ", Arrays.toString(decryptedBytes));
-            Log.i("======FINGERPRINT_MODULE, decryptedBytes.length: ", String.valueOf(decryptedBytes.length));
+            cipher2.init(Cipher.DECRYPT_MODE, secretKey);
+            Log.i("======F", "INIT DECRYPT successful");
+            byte[] decryptedBytes = cipher2.doFinal(cipherBytes);
+            Log.i("======F, decrBytes: ", Arrays.toString(decryptedBytes));
+            Log.i("======F, dB.length: ", String.valueOf(decryptedBytes.length));
             String decryptedText = Base64.encodeToString(decryptedBytes, Base64.DEFAULT);
-            Log.i("======FINGERPRINT_MODULE, plaintext decrypted: ", decryptedText);
+            Log.i("======F, dB Base64: ", decryptedText);
             successCallback.invoke(false);
         } catch (KeyPermanentlyInvalidatedException e) {
-            Log.i("======FINGERPRINT_MODULE", "key has changed");
+            Log.i("======F", "key has changed");
             successCallback.invoke(true);
             generateSecretKey(new KeyGenParameterSpec.Builder(
                     KEY_NAME,
@@ -136,7 +150,7 @@ public class RNFingerprintChangeModule extends ReactContextBaseJavaModule{
                     .setInvalidatedByBiometricEnrollment(true)
                     .build());
         } catch (Exception e) {
-            Log.i("======FINGERPRINT_MODULE, Exception: ", e.toString());
+            Log.i("======F, Exception: ", e.toString());
             e.printStackTrace();
             successCallback.invoke(false);
         }
@@ -159,8 +173,8 @@ public class RNFingerprintChangeModule extends ReactContextBaseJavaModule{
 
     private Cipher getCipher() throws NoSuchPaddingException, NoSuchAlgorithmException {
         return Cipher.getInstance(KeyProperties.KEY_ALGORITHM_AES + "/"
-                + KeyProperties.BLOCK_MODE_CBC + "/"
-                + KeyProperties.ENCRYPTION_PADDING_PKCS7);
+                + KeyProperties.BLOCK_MODE_GCM + "/"
+                + KeyProperties.ENCRYPTION_PADDING_NONE);
     }
 
     private String adjustTestString(String input) throws UnsupportedEncodingException {
@@ -178,8 +192,8 @@ public class RNFingerprintChangeModule extends ReactContextBaseJavaModule{
             KeyGenerator keyGenerator = KeyGenerator.getInstance(KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
             keyGenerator.init(new KeyGenParameterSpec.Builder(KEY_NAME, KeyProperties.PURPOSE_ENCRYPT |
                     KeyProperties.PURPOSE_DECRYPT)
-                    .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
+                    .setBlockModes(KeyProperties.BLOCK_MODE_GCM)
+                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_NONE)
                     .setUserAuthenticationRequired(true)
                     .setInvalidatedByBiometricEnrollment(true)
 //                    .setUnlockedDeviceRequired(true)
