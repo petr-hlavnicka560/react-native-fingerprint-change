@@ -1,60 +1,50 @@
 package com.toyberman.fingerprintChange;
 
+import android.content.Context;
+import android.content.SharedPreferences;
+import android.os.Looper;
+import android.security.keystore.KeyGenParameterSpec;
+import android.security.keystore.KeyPermanentlyInvalidatedException;
+import android.security.keystore.KeyProperties;
+import android.util.Base64;
+import android.util.Log;
 import android.os.Build;
 
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.RequiresApi;
 import androidx.biometric.BiometricPrompt;
+import androidx.fragment.app.FragmentActivity;
 
+import com.facebook.react.bridge.AssertionException;
 import com.facebook.react.bridge.Callback;
 import com.facebook.react.bridge.ReactApplicationContext;
 import com.facebook.react.bridge.ReactContextBaseJavaModule;
 import com.facebook.react.bridge.ReactMethod;
 
-import android.security.keystore.KeyPermanentlyInvalidatedException;
-import android.util.Base64;
-import android.util.Log;
+import java.io.IOException;
+import java.security.GeneralSecurityException;
+import java.security.InvalidAlgorithmParameterException;
+import java.security.KeyStore;
+import java.security.KeyStoreException;
+import java.security.NoSuchAlgorithmException;
+import java.security.NoSuchProviderException;
+import java.security.SecureRandom;
+import java.security.UnrecoverableKeyException;
+import java.security.cert.CertificateException;
+import java.util.Arrays;
+import java.util.concurrent.Executor;
+import java.util.concurrent.Executors;
 
 import javax.crypto.BadPaddingException;
 import javax.crypto.Cipher;
 import javax.crypto.IllegalBlockSizeException;
+import javax.crypto.KeyGenerator;
 import javax.crypto.NoSuchPaddingException;
 import javax.crypto.SecretKey;
-import javax.crypto.KeyGenerator;
-
-import android.security.keystore.KeyGenParameterSpec;
-import android.security.keystore.KeyProperties;
-import android.content.SharedPreferences;
-import android.content.Context;
-
 import javax.crypto.spec.GCMParameterSpec;
-import javax.crypto.spec.IvParameterSpec;
 
-import javax.crypto.spec.SecretKeySpec;
-
-import java.io.IOException;
-import java.io.UnsupportedEncodingException;
-import java.lang.reflect.Array;
-import java.nio.ByteBuffer;
-import java.nio.charset.StandardCharsets;
-import java.security.AlgorithmParameters;
-import java.security.InvalidAlgorithmParameterException;
-import java.security.KeyStore;
-import java.security.SecureRandom;
-import java.security.KeyStoreException;
-import java.security.NoSuchAlgorithmException;
-import java.security.NoSuchProviderException;
-import java.security.UnrecoverableKeyException;
-import java.security.cert.CertificateException;
-import java.util.Arrays;
-
-import androidx.biometric.BiometricPrompt;
-import androidx.fragment.app.FragmentActivity;
-
-import java.util.concurrent.Executor;
-import java.util.concurrent.Executors;
-
-@RequiresApi(api = 29)
+@RequiresApi(api = Build.VERSION_CODES.N)
 public class RNFingerprintChangeModule extends ReactContextBaseJavaModule {
 
     private final ReactApplicationContext reactContext;
@@ -65,6 +55,14 @@ public class RNFingerprintChangeModule extends ReactContextBaseJavaModule {
     private final String ENCRYPTED_TEST_STRING_KEY = "EncryptedTestStringKey'";
     private final Executor executor = Executors.newSingleThreadExecutor();
 
+    private final String RESULT_AUTHENTICATION_SUCCESS = "AuthenticationSuccess";
+    private final String RESULT_AUTHENTICATION_FAILED = "AuthenticationFailed";
+    private final String RESULT_BIOMETRY_CHANGED = "BiometryChanged";
+    private final String RESULT_AUTHENTICATION_ERROR = "AuthenticationError";
+
+    private BiometricPrompt.CryptoObject crypto;
+    private String result;
+
     private final byte[] seed = new byte[]{0x01, 0x04, 0x08, 0x07, 0x05, 0x11, 0x14, 0x08, 0x07, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03, 0x01, 0x04, 0x08, 0x07, 0x05, 0x11, 0x14, 0x08, 0x07, 0x04, 0x00, 0x00, 0x00, 0x00, 0x00, 0x03};
 
     public RNFingerprintChangeModule(ReactApplicationContext reactContext) {
@@ -73,7 +71,7 @@ public class RNFingerprintChangeModule extends ReactContextBaseJavaModule {
     }
 
     @ReactMethod
-    public void hasFingerPrintChanged(Callback errorCallback, Callback successCallback) throws KeyPermanentlyInvalidatedException, Exception {
+    public void authenticate(Callback errorCallback, Callback successCallback) throws KeyPermanentlyInvalidatedException, Exception {
         Cipher cipherEncrypt = getCipher();
         Cipher cipherDecrypt = getCipher();
 
@@ -81,17 +79,6 @@ public class RNFingerprintChangeModule extends ReactContextBaseJavaModule {
         Log.i("======F, key at start: ", secretKey == null ? "NULL" : secretKey.toString());
         final SharedPreferences preferences = this.reactContext.getSharedPreferences(SHARED_PREFERENCES_NAME, Context.MODE_PRIVATE);
         if (getSecretKey() == null) {
-//                generateSecretKey(new KeyGenParameterSpec.Builder(
-//                        KEY_NAME,
-//                        KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
-//                        .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
-//                        .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
-//                        .setUserAuthenticationRequired(true)
-//                        // Invalidate the keys if the user has registered a new biometric
-//                        // credential, such as a new fingerprint. Can call this method only
-//                        // on Android 7.0 (API level 24) or higher. The variable
-//                        .setInvalidatedByBiometricEnrollment(true)
-//                        .build());
             generateKey(seed);
             secretKey = getSecretKey();
             Log.i("======F", "key has been created");
@@ -99,22 +86,8 @@ public class RNFingerprintChangeModule extends ReactContextBaseJavaModule {
         }
         try {
             Log.i("======F, key in try: ", secretKey.toString());
-//                byte[] newIv = new byte[16];
-//                SecureRandom ivRandom = new SecureRandom();
-//                ivRandom.nextBytes(newIv);
-//                Log.i("======F, newIv: ", Arrays.toString(newIv));
-//                Log.i("======F, newIv.length: ", String.valueOf(newIv.length));
-//                String newIvText = Base64.encodeToString(newIv, Base64.DEFAULT);
-//                Log.i("======F, newIv Base64: ", newIvText);
-//                byte[] iv = new byte[] {0x01, 0x04, 0x08, 0x07, 0x05, 0x11, 0x14, 0x08, 0x07, 0x04, 0x00, 0x00};
-//                final IvParameterSpec emptyIvSpec = new IvParameterSpec(iv);
-//                SecretKey secretKey2 = new SecretKeySpec(new byte[] {0x01, 0x04, 0x08, 0x07, 0x05, 0x11, 0x13, 0x08, 0x08, 0x04, 0x01, 0x05, 0x06, 0x07, 0x08, 0x03}, "AES");
-//                GCMParameterSpec paramsSpec = new GCMParameterSpec(128, newIv);
-//                Log.i("======F", "GCMParameterSpec successful");
-//                Log.i("======F, cip param: ", cipher.getParameters().toString());
-//                Log.i("======F, cip iv: ", Arrays.toString(cipher.getIV()));
 
-            Log.i("======F, test str STORED", preferences.getString(ENCRYPTED_TEST_STRING_KEY, ""));
+            Log.i("======F, tst str STORED", preferences.getString(ENCRYPTED_TEST_STRING_KEY, ""));
             if (preferences.getString(ENCRYPTED_TEST_STRING_KEY, "").isEmpty()) {
                 cipherEncrypt.init(Cipher.ENCRYPT_MODE, secretKey);
                 Log.i("======F", "INIT ENCRYPT successful");
@@ -136,66 +109,24 @@ public class RNFingerprintChangeModule extends ReactContextBaseJavaModule {
                 Log.i("======F", "INIT DECRYPT successful");
             }
 
-            BiometricPrompt.CryptoObject crypto;
             if (preferences.getString(ENCRYPTED_TEST_STRING_KEY, "").isEmpty()) {
                 crypto = new BiometricPrompt.CryptoObject(cipherEncrypt);
             } else {
                 crypto = new BiometricPrompt.CryptoObject(cipherDecrypt);
             }
 
+            startAuthentication();
 
-            final FragmentActivity activity = (FragmentActivity) getCurrentActivity();
-            if (null == activity) throw new NullPointerException("Not assigned current activity");
+            if (this.result.equals(RESULT_AUTHENTICATION_SUCCESS)) {
+                successCallback.invoke(RESULT_AUTHENTICATION_SUCCESS);
+            } else {
+                errorCallback.invoke(this.result);
+            }
 
-            BiometricPrompt.PromptInfo promptInfo = new BiometricPrompt.PromptInfo.Builder()
-                    .setTitle("Authorise")
-                    .setSubtitle("Please, authorise yourself")
-                    .setDescription("This is needed to perform cryptographic operations.")
-                    .setNegativeButtonText("Cancel")
-                    .build();
 
-            BiometricPrompt.AuthenticationCallback callback = new AuthenticationCallback(successCallback, this.reactContext);
-
-            final BiometricPrompt prompt = new BiometricPrompt(activity, executor, callback);
-
-            prompt.authenticate(promptInfo, crypto);
-
-//                new BiometricPrompt.PromptInfo.Builder()
-//                        .setTitle("Authorise")
-//                        .setSubtitle("Please, authorise yourself")
-//                        .setDescription("This is needed to perform cryptographic operations.")
-//                        .setNegativeButtonText("Cancel")
-//                        .build()
-//                        .authenticate(crypto, new CancellationSignal(), context.getMainExecutor(),
-//                                new BiometricCallbackV28(biometricCallback));
-
-            successCallback.invoke(false);
-        } catch (KeyPermanentlyInvalidatedException e) {
-            Log.i("======F", "key has changed");
-            successCallback.invoke(true);
-            generateSecretKey(new KeyGenParameterSpec.Builder(
-                    KEY_NAME,
-                    KeyProperties.PURPOSE_ENCRYPT | KeyProperties.PURPOSE_DECRYPT)
-                    .setBlockModes(KeyProperties.BLOCK_MODE_CBC)
-                    .setEncryptionPaddings(KeyProperties.ENCRYPTION_PADDING_PKCS7)
-                    .setUserAuthenticationRequired(true)
-                    // Invalidate the keys if the user has registered a new biometric
-                    // credential, such as a new fingerprint. Can call this method only
-                    // on Android 7.0 (API level 24) or higher. The variable
-                    .setInvalidatedByBiometricEnrollment(true)
-                    .build());
         } catch (Exception e) {
             Log.i("======F, Exception: ", e.toString());
-            e.printStackTrace();
-            successCallback.invoke(true);
         }
-    }
-
-    private void generateSecretKey(KeyGenParameterSpec keyGenParameterSpec) throws InvalidAlgorithmParameterException, NoSuchProviderException, NoSuchAlgorithmException {
-        KeyGenerator keyGenerator = KeyGenerator.getInstance(
-                KeyProperties.KEY_ALGORITHM_AES, "AndroidKeyStore");
-        keyGenerator.init(keyGenParameterSpec);
-        keyGenerator.generateKey();
     }
 
     private SecretKey getSecretKey() throws CertificateException, NoSuchAlgorithmException, IOException, UnrecoverableKeyException, KeyStoreException {
@@ -210,14 +141,6 @@ public class RNFingerprintChangeModule extends ReactContextBaseJavaModule {
         return Cipher.getInstance(KeyProperties.KEY_ALGORITHM_AES + "/"
                 + KeyProperties.BLOCK_MODE_GCM + "/"
                 + KeyProperties.ENCRYPTION_PADDING_NONE);
-    }
-
-    private String adjustTestString(String input) throws UnsupportedEncodingException {
-        StringBuilder result = new StringBuilder(input);
-        while (result.toString().getBytes(StandardCharsets.UTF_8).length % 16 != 0) {
-            result.append("\u0020");
-        }
-        return result.toString();
     }
 
     private void generateKey(byte[] seed) {
@@ -242,17 +165,71 @@ public class RNFingerprintChangeModule extends ReactContextBaseJavaModule {
         }
     }
 
+    /**
+     * trigger interactive authentication.
+     */
+    public void startAuthentication() {
+        final FragmentActivity activity = (FragmentActivity) getCurrentActivity();
+        if (null == activity) throw new NullPointerException("Not assigned current activity");
+
+        // code can be executed only from MAIN thread
+        if (Thread.currentThread() != Looper.getMainLooper().getThread()) {
+            activity.runOnUiThread(this::startAuthentication);
+            waitResult();
+            return;
+        }
+
+        BiometricPrompt.PromptInfo promptInfo = new BiometricPrompt.PromptInfo.Builder()
+                .setTitle("Authorise")
+                .setSubtitle("Please, authorise yourself")
+                .setDescription("This is needed to perform cryptographic operations.")
+                .setNegativeButtonText("Cancel")
+                .build();
+
+        BiometricPrompt.AuthenticationCallback callback = new AuthenticationCallback(this.reactContext);
+
+        final BiometricPrompt prompt = new BiometricPrompt(activity, executor, callback);
+
+        prompt.authenticate(promptInfo, crypto);
+    }
+
+    /**
+     * Block current NON-main thread and wait for user authentication results.
+     */
+    public void waitResult() {
+        if (Thread.currentThread() == Looper.getMainLooper().getThread())
+            throw new AssertionException("method should not be executed from MAIN thread");
+
+        Log.i("======F", "blocking thread. waiting for done UI operation.");
+
+        try {
+            synchronized (this) {
+                wait();
+            }
+        } catch (InterruptedException ignored) {
+            /* shutdown sequence */
+        }
+
+        Log.i("======F", "unblocking thread.");
+    }
+
+    public void onCryptoOperationFinished(@Nullable final String result) {
+        this.result = result;
+
+        synchronized (this) {
+            notifyAll();
+        }
+    }
+
     @Override
     public String getName() {
         return "RNFingerprintChange";
     }
 
     private class AuthenticationCallback extends BiometricPrompt.AuthenticationCallback {
-        private final Callback successCallback;
         private final ReactApplicationContext reactContext;
 
-        private AuthenticationCallback(Callback successCallback, ReactApplicationContext reactContext) {
-            this.successCallback = successCallback;
+        private AuthenticationCallback(ReactApplicationContext reactContext) {
             this.reactContext = reactContext;
         }
 
@@ -261,8 +238,15 @@ public class RNFingerprintChangeModule extends ReactContextBaseJavaModule {
          */
         @Override
         public void onAuthenticationError(final int errorCode, @NonNull final CharSequence errString) {
+            Log.i("======F, Err code: ", String.valueOf(errorCode));
             Log.i("======F, Error: ", String.valueOf(errString));
-            this.successCallback.invoke(true);
+
+            //Error 7  - Too many attempts. Try again later.
+            if (errorCode == 7) {
+                onCryptoOperationFinished(RESULT_AUTHENTICATION_FAILED);
+            } else {
+                onCryptoOperationFinished(RESULT_AUTHENTICATION_ERROR);
+            }
 
         }
 
@@ -275,29 +259,33 @@ public class RNFingerprintChangeModule extends ReactContextBaseJavaModule {
 
             final SharedPreferences preferences = this.reactContext.getSharedPreferences(SHARED_PREFERENCES_NAME, Context.MODE_PRIVATE);
             Cipher cipher = result.getCryptoObject().getCipher();
-            Log.i("======F, Success - test str STORED", preferences.getString(ENCRYPTED_TEST_STRING_KEY, ""));
+            Log.i("======F, Succ-str STOR", preferences.getString(ENCRYPTED_TEST_STRING_KEY, ""));
             if (preferences.getString(ENCRYPTED_TEST_STRING_KEY, "").isEmpty()) {
-                android.content.SharedPreferences.Editor editor = preferences.edit();
                 String testStringToStore = Base64.encodeToString(TEST_STRING.getBytes(), Base64.DEFAULT);
-                Log.i("======F, Success - test str to store", testStringToStore);
+                Log.i("======F, Succ-str t str", testStringToStore);
                 try {
                     String encodedResult = Base64.encodeToString(cipher.doFinal(Base64.decode(testStringToStore, Base64.DEFAULT)), Base64.DEFAULT);
-                    Log.i("======F, Success - encr str to store", encodedResult);
+                    Log.i("======F, Succ-encr str", encodedResult);
+                    android.content.SharedPreferences.Editor editor = preferences.edit();
                     editor.putString(ENCRYPTED_TEST_STRING_KEY, encodedResult);
-//                    this.successCallback.invoke(false);
+                    editor.apply();
+                    onCryptoOperationFinished(RESULT_AUTHENTICATION_SUCCESS);
                 } catch (Exception e) {
                     Log.i("======F, If Exception: ", e.toString());
+                    onCryptoOperationFinished(RESULT_AUTHENTICATION_ERROR);
                 }
-                editor.apply();
             } else {
                 Log.i("======F, Success", "INSIDE else - decrypt block");
                 try {
                     String testStringRecovered = Base64.encodeToString(cipher.doFinal(Base64.decode(preferences.getString(ENCRYPTED_TEST_STRING_KEY, ""), Base64.DEFAULT)), Base64.DEFAULT);
-                    Log.i("======F, Success - test str recovered", testStringRecovered);
-//                    this.successCallback.invoke(false);
+                    Log.i("======F, Succ-s rec", testStringRecovered);
+                    onCryptoOperationFinished(RESULT_AUTHENTICATION_SUCCESS);
+                } catch (IllegalBlockSizeException illegalBlockSizeException) {
+                    Log.i("======F, Else Exc: ", illegalBlockSizeException.toString());
+                    onCryptoOperationFinished(RESULT_BIOMETRY_CHANGED);
                 } catch (Exception e) {
-                    Log.i("======F, Else Exception: ", e.toString());
-//                    this.successCallback.invoke(true);
+                    Log.i("======F, If Exception: ", e.toString());
+                    onCryptoOperationFinished(RESULT_AUTHENTICATION_ERROR);
                 }
             }
 
